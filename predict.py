@@ -8,6 +8,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 from vietocr.vietocr.tool.predictor import Predictor
 from vietocr.vietocr.tool.config import Cfg
+import tempfile
+from gtts import gTTS
+import pygame
+import time
+import tempfile
 
 import easyocr
 FONT = './PaddleOCR/doc/fonts/latin.ttf'
@@ -15,7 +20,23 @@ FONT = './PaddleOCR/doc/fonts/latin.ttf'
 ocrCall = False
 cached_data = []
 stop_event = threading.Event()
-
+def speak_vietnamese(text):
+    try:
+        tts = gTTS(text=text, lang='vi')
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+            temp_filename = fp.name
+            tts.save(temp_filename)
+        
+        pygame.mixer.init()
+        pygame.mixer.music.load(temp_filename)
+        pygame.mixer.music.play()
+        
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.1)
+        
+        pygame.mixer.quit()
+    except Exception as e:
+        print("TTS Error:", e)
 def putVietnameseText(frame, text, position):
     font_path = "arial.ttf"
     font_size = 15
@@ -54,6 +75,8 @@ def hand_handler(frame):
                     x2, y2 = texts[0][1][0], texts[0][1][1]
                     if (x1 <= px <= x2 and y1 <= py <= y2):
                          print(f"Text in finger: {texts[1]}")
+                         speak_vietnamese(texts[1])
+
 
 
 def predict():
@@ -138,7 +161,7 @@ def displayProcess():
      #Config of camera
 
      localIP = "192.168.1.37" #Change this line depending on camera's local IP
-     video = cv2.VideoCapture(f"http://{localIP}:81/stream")
+     video = cv2.VideoCapture(f"http://{localIP}:/stream")
      width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
      height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
