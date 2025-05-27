@@ -136,13 +136,8 @@ def predict():
 def displayProcess():
      global ocrCall
      #Config of camera
-     data = np.load('calibration_data.npz')
-     mtx = data['camera_matrix']
-     dist = data['dist_coeffs']
-     rvecs = data['rvecs']
-     tvecs = data['tvecs']
 
-     localIP = "192.168.1.37"
+     localIP = "192.168.1.37" #Change this line depending on camera's local IP
      video = cv2.VideoCapture(f"http://{localIP}:81/stream")
      width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
      height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
