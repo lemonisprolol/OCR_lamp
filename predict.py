@@ -20,46 +20,39 @@ FONT = './PaddleOCR/doc/fonts/latin.ttf'
 ocrCall = False
 cached_data = []
 stop_event = threading.Event()
+
+isSpeaking = False
 def speak_vietnamese(text):
-    try:
-        tts = gTTS(text=text, lang='vi')
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-            temp_filename = fp.name
-            tts.save(temp_filename)
-        
-        pygame.mixer.init()
-        pygame.mixer.music.load(temp_filename)
-        pygame.mixer.music.play()
-        
-        while pygame.mixer.music.get_busy():
-            time.sleep(0.1)
-        
-        pygame.mixer.quit()
-    except Exception as e:
-        print("TTS Error:", e)
-def putVietnameseText(frame, text, position):
-    font_path = "arial.ttf"
-    font_size = 15
-    color = (255, 0, 0)
+     global isSpeaking
+     try:  
+               isSpeaking = True
+               tts = gTTS(text=text, lang='vi')
+               with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+                    temp_filename = fp.name
+                    tts.save(temp_filename)
 
-    img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    font = ImageFont.truetype(font_path, font_size)
+               pygame.mixer.init()
+               pygame.mixer.music.load(temp_filename)
+               pygame.mixer.music.play()
 
-    draw = ImageDraw.Draw(img_pil)
-    draw.text(position, text, font=font, fill=color)
+               while pygame.mixer.music.get_busy():
+                    time.sleep(0.1)
 
-    frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
-    return frame
+               isSpeaking = False
+               pygame.mixer.quit()
+     except Exception as e:
+          print("TTS Error:", e)
+
 
 mpHands = mp.solutions.hands 
 hands = mpHands.Hands()
 mpDraw = mp.solutions.drawing_utils
 
+last_text = ""
 def hand_handler(frame):
-     global cached_data
+     global cached_data, isSpeaking, last_text
      height, width = frame.shape[:2]
      results = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-     last_text = ""
      if results.multi_hand_landmarks:
           for landmarks in results.multi_hand_landmarks:
                mpDraw.draw_landmarks(frame, landmarks, mpHands.HAND_CONNECTIONS)
@@ -75,8 +68,11 @@ def hand_handler(frame):
                     x2, y2 = texts[0][1][0], texts[0][1][1]
                     if (x1 <= px <= x2 and y1 <= py <= y2):
                          print(f"Text in finger: {texts[1]}")
-                         speak_vietnamese(texts[1])
+                         if last_text != texts[1] and not isSpeaking:
+                              last_text = texts[1]
 
+                              current_speak_thread = threading.Thread(target=speak_vietnamese, args=(texts[1],))
+                              current_speak_thread.start()
 
 
 def predict():
@@ -109,7 +105,7 @@ def predict():
    
           # result = detector.ocr(img_path, cls=False, det=True, rec=False)
           # result = result[:][:][0]
-          result = reader.readtext(img)
+          result = reader.readtext(img, width_ths = 1)
 
           # Filter Boxes
           boxes = []
@@ -150,7 +146,6 @@ def predict():
           color = (0, 255, 255)
           for textBox in cached_data:
                edited_frame = cv2.rectangle(img, textBox[0][0], textBox[0][1], color, 2)
-               edited_frame = putVietnameseText(img, textBox[1], textBox[0][0])
           cv2.imwrite("./screenshot/output.jpg", edited_frame)
           #-------------------------------------------
 
@@ -160,8 +155,8 @@ def displayProcess():
      global ocrCall
      #Config of camera
 
-     localIP = "192.168.1.37" #Change this line depending on camera's local IP
-     video = cv2.VideoCapture(f"http://{localIP}:/stream")
+     localIP = "192.168.1.39" #Change this line depending on camera's local IP
+     video = cv2.VideoCapture(f"http://{localIP}:81/stream")
      width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
      height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
