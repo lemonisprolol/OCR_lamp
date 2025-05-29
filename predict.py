@@ -145,6 +145,68 @@ def predict(state):
 
      threading.Thread(target=run_predict, daemon=True).start()
 
+
+# ----- OCR Thread -----
+config = Cfg.load_config_from_name('vgg_transformer')
+config['cnn']['pretrained'] = True
+config['predictor']['beamsearch'] = True
+config['device'] = 'cpu'
+
+recognitor = Predictor(config)
+reader = easyocr.Reader(['vi'], gpu=True)
+def predict(state):
+     state.isOcr = True
+     print("Starting AI OCR")
+     speak_vietnamese("Đang chạy máy đọc", state)
+     ret, frame = state.video.read()
+     if not ret:
+          print("❌ Failed to grab frame after delay")
+          state.isOcr = False
+          return
+     frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+     cv2.imwrite("./screenshot/cap.jpg", frame)
+
+     state.isReading = True
+     img_path = "./screenshot/cap.jpg"
+     img = cv2.imread(img_path)
+
+     result = reader.readtext(img, width_ths=1)
+
+     boxes = []
+     for (box, text, confidence) in result:
+          boxes.append([[int(box[0][0]), int(box[0][1])], [int(box[2][0]), int(box[2][1])]])
+
+     data = []
+     h, w = img.shape[:2]
+     for box in boxes:
+          x1, y1 = max(1, box[0][0]), max(1, box[0][1])
+          x2, y2 = min(w, box[1][0]), min(h, box[1][1])
+          cropped_image = img[y1:y2, x1:x2]
+          if cropped_image.size == 0 or cropped_image.shape[0] == 0 or cropped_image.shape[1] == 0:
+               continue
+
+          try:
+               cropped_image = Image.fromarray(cropped_image)
+          except:
+               print("Error converting crop to PIL")
+               break
+
+          rec_result = recognitor.predict(cropped_image)
+          data.append([[(box[0][0], box[0][1]), (box[1][0], box[1][1])], rec_result])
+
+     state.cached_data = data
+     speak_vietnamese("Máy đọc đã chạy xong", state)
+     state.isReading = False
+     print("OCR Cached data:", state.cached_data)
+
+     color = (0, 255, 255)
+     for textBox in state.cached_data:
+          img = cv2.rectangle(img, textBox[0][0], textBox[0][1], color, 2)
+     cv2.imwrite("./screenshot/output.jpg", img)
+     state.isOcr = False
+     state.isDetected = False
+
+
 # ----- YOLO fist detection setup -----
 yolo_model = YOLO("fist.pt")
 class_names = yolo_model.names
@@ -190,13 +252,11 @@ def displayProcess(state):
         cv2.imshow("Edited Frame", edited_frame)
         cv2.imshow("Hand Detection", hand_frame)
 
-        key = cv2.waitKey(1) & 0xFF
-        if key == 27:  # ESC
-            state.stop_event.set()
-            break
-        if key == ord('r'):  # R để chạy OCR
-            if not state.isOcr and not state.isReading:
-                predict(state)
+          key = cv2.waitKey(1)
+          if key == ord('q'):
+               state.stop_event.set()
+               break
+
 
     state.video.release()
     cv2.destroyAllWindows()
