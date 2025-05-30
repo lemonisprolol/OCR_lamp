@@ -19,10 +19,10 @@ vision_client = vision.ImageAnnotatorClient()
 # ----- Ensure screenshot folder exists -----
 os.makedirs("./screenshot", exist_ok=True)
 
-# ----- AppState Class to Replace Globals -----
+# ----- AppState Class to Replace Globals -----v 
 class AppState:
     def __init__(self):
-        self.localIP = "192.168.1.40"
+        self.localIP = "192.168.1.37"
         self.video = cv2.VideoCapture(f"http://{self.localIP}:81/stream")
 
         self.latest_frame = None  # Lưu frame mới nhất
