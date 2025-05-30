@@ -22,7 +22,7 @@ os.makedirs("./screenshot", exist_ok=True)
 # ----- AppState Class to Replace Globals -----v 
 class AppState:
     def __init__(self):
-        self.localIP = "192.168.1.37"
+        self.localIP = "192.168.137.247"
         self.video = cv2.VideoCapture(f"http://{self.localIP}:81/stream")
 
         self.latest_frame = None  # Lưu frame mới nhất
