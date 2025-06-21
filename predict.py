@@ -3,205 +3,173 @@ import threading
 import time
 import cv2
 import mediapipe as mp
+import numpy as np
 from gtts import gTTS
 import pygame
 from google.cloud import vision
-from ultralytics import YOLO
 import tempfile
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# ----- Config Google Vision API -----
-KEY_PATH = r"key.json"
+# -------------------- Setup ----------------------
+KEY_PATH = "key.json"
 if not os.path.exists(KEY_PATH):
     raise FileNotFoundError(f"Google Vision API key not found at: {KEY_PATH}")
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = KEY_PATH
 vision_client = vision.ImageAnnotatorClient()
-
-# ----- Ensure screenshot folder exists -----
 os.makedirs("./screenshot", exist_ok=True)
 
-# ----- AppState Class to Replace Globals -----v 
+# -------------------- App State ----------------------
 class AppState:
     def __init__(self):
-        self.localIP = "192.168.137.247"
+        self.localIP = "192.168.1.50"
         self.video = cv2.VideoCapture(f"http://{self.localIP}:81/stream")
-
-        self.latest_frame = None  # Lưu frame mới nhất
-        self.cached_data = []     # Danh sách các câu, mỗi câu là list các box-text
+        self.latest_frame = None
+        self.cached_data = []
         self.stop_event = threading.Event()
         self.isSpeaking = False
         self.last_text = ""
         self.isReading = False
         self.isOcr = False
-        self.lastTime = 0
-        self.isDetected = False
 
-# ----- TTS -----
+# -------------------- TTS ----------------------
 def speak_vietnamese(text, state):
-     pygame.mixer.init()
-     def run_tts():
-          try:
-               state.isSpeaking = True
-               tts = gTTS(text=text, lang='vi')
-               with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-                    temp_filename = fp.name
-                    tts.save(temp_filename)
+    pygame.mixer.init()
+    def run_tts():
+        try:
+            state.isSpeaking = True
+            tts = gTTS(text=text, lang='vi')
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+                tts.save(fp.name)
+            pygame.mixer.music.load(fp.name)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.1)
+            pygame.mixer.quit()
+            state.isSpeaking = False
+        except Exception as e:
+            print("TTS Error:", e)
+            state.isSpeaking = False
+    threading.Thread(target=run_tts, daemon=True).start()
 
-               pygame.mixer.music.load(temp_filename)
-               pygame.mixer.music.play()
-
-               while pygame.mixer.music.get_busy():
-                    time.sleep(0.1)
-
-               pygame.mixer.quit()
-               state.isSpeaking = False
-          except Exception as e:
-               print("TTS Error:", e)
-               state.isSpeaking = False
-
-     threading.Thread(target=run_tts, daemon=True).start()
-
-# ----- Hand Detection (MediaPipe) -----
+# -------------------- MediaPipe Hand Detection (optimized) ----------------------
 mpHands = mp.solutions.hands
-hands = mpHands.Hands()
+hands = mpHands.Hands(
+    static_image_mode=False,
+    max_num_hands=2,
+    model_complexity=1,  # Dùng model chất lượng cao hơn (nếu máy mạnh, dùng 2)
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
 mpDraw = mp.solutions.drawing_utils
 
 def hand_handler(frame, state):
-    height, width = frame.shape[:2]
+    h, w = frame.shape[:2]
     results = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     if results.multi_hand_landmarks:
         for landmarks in results.multi_hand_landmarks:
             mpDraw.draw_landmarks(frame, landmarks, mpHands.HAND_CONNECTIONS)
-            for index, lm in enumerate(landmarks.landmark):
-                if index == 8:  # ngón trỏ
-                    px = lm.x * width
-                    py = lm.y * height
-                    break
-            for sentence in state.cached_data:
-                # sentence: list các box-text trong 1 câu
-                # check nếu trỏ nằm trong box nào của câu này
-                for texts in sentence:
-                    x1, y1 = texts[0][0][0], texts[0][0][1]
-                    x2, y2 = texts[0][1][0], texts[0][1][1]
-                    if x1 <= px <= x2 and y1 <= py <= y2:
-                        if state.last_text != texts[1] and not state.isSpeaking:
-                            state.last_text = texts[1]
-                            speak_vietnamese(texts[1], state)
-                        break
+            index_finger = landmarks.landmark[8]
+            px, py = int(index_finger.x * w), int(index_finger.y * h)
+            for box, text in state.cached_data:
+                (x1, y1), (x2, y2) = box
+                if x1 <= px <= x2 and y1 <= py <= y2 and text != state.last_text and not state.isSpeaking:
+                    state.last_text = text
+                    speak_vietnamese(text, state)
 
-
-# ----- Google Vision OCR -----
+# -------------------- OCR via Google Vision ----------------------
 def predict(state):
-     def run_predict():
-          state.isOcr = True
-          state.isReading = True
-          print("Starting Google Vision OCR")
-          speak_vietnamese("Đang chạy máy đọc", state)
-          time.sleep(5)
+    def run_predict():
+        state.isOcr = True
+        state.isReading = True
+        speak_vietnamese("Đang chạy máy đọc", state)
+        time.sleep(1)
+        frame = state.latest_frame
+        if frame is None:
+            state.isOcr = state.isReading = False
+            return
 
-          frame = state.latest_frame
-          if frame is None:
-               print("Can't get latest frame")
-               state.isOcr = False
-               state.isReading = False
-               return
+        img_path = "./screenshot/cap.jpg"
+        cv2.imwrite(img_path, frame)
+        with open(img_path, "rb") as image_file:
+            image = vision.Image(content=image_file.read())
+        response = vision_client.document_text_detection(image=image)
+        if not response.full_text_annotation.text.strip():
+            speak_vietnamese("Không tìm thấy chữ", state)
+            state.isOcr = state.isReading = False
+            return
 
-          img_path = "./screenshot/cap.jpg"
-          cv2.imwrite(img_path, frame)
+        state.cached_data = []
+        for page in response.full_text_annotation.pages:
+            for block in page.blocks:
+                for para in block.paragraphs:
+                    paragraph_text = ""
+                    for word in para.words:
+                        word_text = ''.join([symbol.text for symbol in word.symbols])
+                        paragraph_text += word_text + " "
+                    paragraph_text = paragraph_text.strip()
+                    if paragraph_text:
+                        box = [(v.x, v.y) for v in para.bounding_box.vertices]
+                        x1 = min(p[0] for p in box)
+                        y1 = min(p[1] for p in box)
+                        x2 = max(p[0] for p in box)
+                        y2 = max(p[1] for p in box)
+                        state.cached_data.append([((x1, y1), (x2, y2)), paragraph_text])
 
-          with open(img_path, "rb") as image_file:
-               content = image_file.read()
-          image = vision.Image(content=content)
+        speak_vietnamese("Máy đọc đã chạy xong", state)
 
-          response = vision_client.text_detection(image=image)
-          texts = response.text_annotations
+        # Annotate image without text (only boxes)
+        img = cv2.imread(img_path)
+        for box, _ in state.cached_data:
+            cv2.rectangle(img, box[0], box[1], (0,255,0), 2)
+        cv2.imwrite("./screenshot/output.jpg", img)
 
-          data = []
-          if texts:
-               print("Full text:", texts[0].description.strip())
-               for text in texts[1:]:
-                    box = [(v.x, v.y) for v in text.bounding_poly.vertices]
-                    if len(box) == 4:
-                         data.append([[box[0], box[2]], text.description])
+        state.isOcr = state.isReading = False
+    threading.Thread(target=run_predict, daemon=True).start()
 
-          # Không gộp box, mỗi box là 1 câu riêng lẻ
-          state.cached_data = [[box] for box in data]
+# -------------------- HTTP Server Code ----------------------
 
-          speak_vietnamese("Máy đọc đã chạy xong", state)
 
-          img = cv2.imread(img_path)
-          colors = [(0,255,255), (255,0,255), (255,255,0), (0,128,255), (255,128,0)]
-          for idx, sentence in enumerate(state.cached_data):
-               color = colors[idx % len(colors)]
-               for textBox in sentence:
-                    x1, y1 = textBox[0][0]
-                    x2, y2 = textBox[0][1]
-                    img = cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-          cv2.imwrite("./screenshot/output.jpg", img)
-
-          print("OCR cached sentences:", [[t[1] for t in sent] for sent in state.cached_data])
-          state.isReading = False
-          state.isOcr = False
-          state.isDetected = False
-
-     threading.Thread(target=run_predict, daemon=True).start()
-
-# ----- YOLO fist detection setup -----
-yolo_model = YOLO("fist.pt")
-class_names = yolo_model.names
-target_object = "fist"
-
-def detectFist(frame, state):
-    yolo_results = yolo_model.predict(source=frame, conf=0.5, verbose=False)
-    if yolo_results:
-        for r in yolo_results:
-            for box in r.boxes:
-                conf = float(box.conf[0])
-                cls_id = int(box.cls[0])
-                name = class_names[cls_id]
-                if name.lower() == target_object.lower() and conf >= 0.75:
-                    if not state.isOcr:
-                        predict(state)  # Gọi predict không chặn
-                    return
-
-# ----- Main camera & processing loop -----
+# -------------------- Main Loop ----------------------
 def displayProcess(state):
+    try:
+        has_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
+    except:
+        has_cuda = False
+
     while state.video.isOpened() and not state.stop_event.is_set():
         ret, frame = state.video.read()
         if not ret or frame is None:
             continue
         frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-        # Cập nhật frame mới nhất cho predict dùng
         state.latest_frame = frame.copy()
-
-        edited_frame = frame.copy()
+        edited = frame.copy()
         hand_frame = frame.copy()
 
         if not state.isReading:
-            # Vẽ vùng OCR theo từng câu với màu khác nhau
-            for idx, sentence in enumerate(state.cached_data):
-                color = (0,255,255)  # màu vàng
-                for textBox in sentence:
-                    edited_frame = cv2.rectangle(edited_frame, textBox[0][0], textBox[0][1], color, 2)
+            for box, _ in state.cached_data:
+                cv2.rectangle(edited, box[0], box[1], (0,255,255), 2)
 
-            detectFist(frame, state)
             hand_handler(hand_frame, state)
 
-        cv2.imshow("Edited Frame", edited_frame)
-        cv2.imshow("Hand Detection", hand_frame)
+        if has_cuda:
+            gpu_frame = cv2.cuda_GpuMat()
+            gpu_frame.upload(edited)
+            edited = gpu_frame.download()
 
+        cv2.imshow("Edited", edited)
+        cv2.imshow("Hand", hand_frame)
         key = cv2.waitKey(1) & 0xFF
-        if key == 27:  # ESC
+        if key == 27:
             state.stop_event.set()
             break
-        if key == ord('r'):  # R để chạy OCR
+        if key == ord('r'):
             if not state.isOcr and not state.isReading:
                 predict(state)
 
     state.video.release()
     cv2.destroyAllWindows()
 
-# ----- Run app -----
+# -------------------- Run ----------------------
 if __name__ == "__main__":
     app_state = AppState()
     displayProcess(app_state)
