@@ -2,7 +2,7 @@ import google.generativeai as genai
 
 # ----- Config Google Gemini API -----
 try:
-    genai.configure(api_key="AIzaSyCAwLoFxVtbD62IdB60H8geWmFGKYEwxgs")
+    genai.configure(api_key="API-KEY_HERE")
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
 except Exception as e:
     print(f"Lỗi khởi tạo Gemini: {e}")
