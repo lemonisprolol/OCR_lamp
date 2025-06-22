@@ -2,7 +2,7 @@ import google.generativeai as genai
 
 # ----- Config Google Gemini API -----
 try:
-    genai.configure(api_key="YOUR_GEMINI_API_KEY")
+    genai.configure(api_key="API-KEY-HERE")
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
 except Exception as e:
     print(f"Lỗi khởi tạo Gemini: {e}")
@@ -18,6 +18,8 @@ Nhiệm vụ của bạn là đọc kỹ và tạo ra một bản tóm tắt đ�
 2.  **Đầy đủ:** Không bỏ sót bất kỳ ý chính, luận điểm quan trọng, sự kiện then chốt nào.
 3.  **Súc tích:** Ngắn gọn nhưng vẫn truyền tải đủ thông điệp.
 4.  **Trung thành:** Phản ánh chính xác nội dung gốc, không thêm suy diễn cá nhân.
+
+Chú ý: đừng thêm ký tự đặc biệt
 
 Bây giờ, hãy tóm tắt nội dung sau:
 

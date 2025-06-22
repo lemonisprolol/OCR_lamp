@@ -41,19 +41,17 @@ def speak_vietnamese(text, state):
         try:
             state.isSpeaking = True
             tts = gTTS(text=text, lang='vi')
-            with tempfile.NamedTemporaryFile(delete=True, suffix=".mp3") as fp:
-                temp_filename = fp.name
-                tts.save(temp_filename)
-                pygame.mixer.music.load(temp_filename)
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.1)
-                # pygame.mixer.quit() # Bỏ quit ở đây để tránh lỗi init/quit liên tục
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+                tts.save(fp.name)
+            pygame.mixer.music.load(fp.name)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.1)
+            pygame.mixer.quit()
+            state.isSpeaking = False
         except Exception as e:
             print("TTS Error:", e)
-        finally:
             state.isSpeaking = False
-            
     threading.Thread(target=run_tts, daemon=True).start()
 
 # Hàm TTS riêng để đọc bản tóm tắt
@@ -176,7 +174,7 @@ def displayProcess(state):
         ret, frame = state.video.read()
         if not ret or frame is None:
             continue
-        #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         state.latest_frame = frame.copy()
         
         edited = frame.copy()
