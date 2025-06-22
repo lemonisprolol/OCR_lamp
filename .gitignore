@@ -7,3 +7,5 @@ colab_paddle.ipynb/
 output/
 key.json
 screenshot/
+lamp/key.h
+lamp/apphttp.cpp

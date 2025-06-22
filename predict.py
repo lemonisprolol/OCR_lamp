@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 # ----- Import hàm compress từ file gemini_handler.py -----
 from compress import compress
+from flask import Flask, jsonify
 
 # -------------------- Setup ----------------------
 KEY_PATH = "key.json"
@@ -166,7 +167,27 @@ def run_compress_workflow(state):
 
 
 # -------------------- HTTP Server Code ----------------------
-# (Bỏ trống như file gốc của bạn)
+app = Flask(__name__)
+flask_thread = None
+
+@app.route('/predict', methods=['GET'])
+def handle_predict():
+    if not app_state.isOcr and not app_state.isReading:
+        predict(app_state)
+        return jsonify({'status': 'started'})
+    else:
+        return jsonify({'status': 'busy'})
+
+@app.route('/summary', methods=['GET'])
+def handle_summary():
+    if not app_state.isReading and not app_state.isOcr:
+        run_compress_workflow(app_state)
+        return jsonify({'status': 'summary started'})
+    return jsonify({'status': 'busy'})
+
+def run_flask():
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+
 
 # -------------------- Main Loop ----------------------
 def displayProcess(state):
@@ -209,4 +230,6 @@ def displayProcess(state):
 # -------------------- Run ----------------------
 if __name__ == "__main__":
     app_state = AppState()
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
     displayProcess(app_state)
